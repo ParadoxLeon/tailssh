@@ -1,5 +1,4 @@
-### tailssh
-Simple script that scans for available machines with Tailscale status and creates an SSH connection.
+## Simple script that scans for available machines with Tailscale status and creates an SSH connection.
 
 ### tailssh Install
 1. Download the script
