@@ -4,4 +4,10 @@
 1. Download the script
 2. Install python3
 3. run the script :)
-4. (optional) add an alias ```echo "alias tailssh='python3 ~/tailssh.py'" >> ~/.bashrc``` then reload ```source ~/.bashrc``` now you only have to type tailssh
+4. (optional Linux) add an alias ```echo "alias tailssh='python3 ~/tailssh.py'" >> ~/.bashrc``` then reload ```source ~/.bashrc``` now you only have to type tailssh
+5. (optional Windows) type ```notepad $PROFILE``` into you're powershell an add this to you're file:
+```
+function tailssh {
+    python "C:\path\to\the\script\tailssh.py"
+}
+```
