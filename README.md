@@ -11,7 +11,7 @@ function tailssh {
     python "C:\path\to\the\script\tailssh.py"
 }
 ```
-## to save passwords use the script ```tailsshWITH_PASSWD_SAVE.py```.
+## to save passwords use the script ```tailsshWITH_PASSWD_SAVE.py```. LINUX ONLY
 It saves the password to the system keyring
 ### dependencies
 - pip keyring
