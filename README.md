@@ -38,6 +38,14 @@ This tool automatically discovers online Tailscale machines, checks for SSH conn
 
 ## Installation
 
+### Binary Releases
+
+1. Go to the [latest release](https://github.com/ParadoxLeon/tailssh/releases/latest) on GitHub.
+2. Download the appropriate executable for your operating system:
+   - **Linux**: `tailsshport-linux.zip`
+   - **Windows**: `tailsshport-windows.zip`
+3. Extract the downloaded archive to a directory of your choice.
+
 ### Manual Installation
 
 #### 1. Install System Dependencies
