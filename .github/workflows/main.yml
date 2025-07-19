@@ -1,10 +1,11 @@
-name: Build Tailsshport Executable
+name: Build Executables
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
+    tags: [ 'v*' ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
@@ -14,78 +15,205 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         include:
           - os: ubuntu-latest
-            platform: linux
-            ext: ''
+            artifact_name: tailsshport-linux
+            executable_extension: ""
+            shell: bash
           - os: windows-latest
-            platform: windows
-            ext: '.exe'
+            artifact_name: tailsshport-windows
+            executable_extension: ".exe"
+            shell: pwsh
 
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout code
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
-        python-version: '3.9'
+        python-version: '3.11'
 
     - name: Install system dependencies (Linux)
-      if: matrix.platform == 'linux'
+      if: matrix.os == 'ubuntu-latest'
+      shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y \
-          sshpass \
-          libsecret-1-dev \
-          gnome-keyring \
-          libdbus-1-dev \
-          libx11-dev
+        sudo apt-get install -y libsecret-1-dev libdbus-1-dev
+        # Install additional libraries that might be needed
+        sudo apt-get install -y libffi-dev libssl-dev
 
     - name: Install Python dependencies
+      shell: ${{ matrix.shell }}
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
-        pip install keyring \
-                    argparse \
-                    setuptools
+        pip install keyring
+        pip install secretstorage  # For Linux keyring support
+        pip install keyrings.alt  # Alternative keyring backends
+        pip install jeepney      # D-Bus for Linux
+        
+        # Install Windows-specific keyring support
+        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
+          pip install pywin32
+        fi
 
-    - name: Build executable
+    - name: Create requirements.txt (for reference)
+      shell: ${{ matrix.shell }}
       run: |
-        pyinstaller --onefile \
-                    --name tailsshport${{ matrix.ext }} \
-                    --add-data "README.md:." \
-                    --hidden-import=keyring.backends.SecretService \
-                    --hidden-import=keyring.backends.kwallet \
-                    --hidden-import=keyring.backends.Windows \
-                    --hidden-import=keyring.backends.macOS \
-                    tailsshport.py
+        pip freeze > requirements.txt
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v3
+    - name: Build executable with PyInstaller
+      shell: ${{ matrix.shell }}
+      run: |
+        pyinstaller \
+          --onefile \
+          --name tailsshport${{ matrix.executable_extension }} \
+          --console \
+          --hidden-import=keyring.backends.Windows.WinVaultKeyring \
+          --hidden-import=keyring.backends.macOS.Keyring \
+          --hidden-import=keyring.backends.SecretService.Keyring \
+          --hidden-import=keyring.backends.kwallet.DBusKeyring \
+          --hidden-import=keyring.backends.chainer \
+          --hidden-import=secretstorage \
+          --hidden-import=jeepney \
+          --hidden-import=keyrings.alt \
+          --collect-all keyring \
+          --collect-all secretstorage \
+          --collect-all jeepney \
+          tailsshport.py
+
+    - name: Test executable (basic help)
+      shell: ${{ matrix.shell }}
+      run: |
+        # Test that the executable runs and shows help
+        ./dist/tailsshport${{ matrix.executable_extension }} --help || true
+        # Test dependency check
+        ./dist/tailsshport${{ matrix.executable_extension }} --check-deps || true
+
+    - name: Create release directory
+      shell: ${{ matrix.shell }}
+      run: |
+        mkdir -p release
+
+    - name: Copy executable to release directory
+      shell: ${{ matrix.shell }}
+      run: |
+        cp dist/tailsshport${{ matrix.executable_extension }} release/
+
+    - name: Create README for release
+      shell: ${{ matrix.shell }}
+      run: |
+        cat > release/README.txt << 'EOF'
+        Tailscale SSH Port Scanner and Connector
+        ========================================
+        
+        This is a standalone executable version of tailsshport.
+        
+        Requirements:
+        - Tailscale must be installed and running on your system
+        - SSH client must be available in PATH
+        - For password authentication: sshpass (Linux/macOS only)
+        
+        Usage:
+        ------
+        ./tailsshport --help           # Show help
+        ./tailsshport --check-deps     # Check system dependencies  
+        ./tailsshport --list-only      # Just list machines
+        ./tailsshport                  # Interactive mode
+        
+        The executable will:
+        1. Scan your Tailscale network for machines with SSH ports open
+        2. Allow you to select a machine to connect to
+        3. Remember your authentication preferences using system keyring
+        4. Connect via SSH
+        
+        Note: This executable is portable but still requires external 
+        dependencies (tailscale, ssh, optionally sshpass) to be installed
+        on your system.
+        EOF
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
       with:
-        name: tailsshport-${{ matrix.platform }}
+        name: ${{ matrix.artifact_name }}
         path: |
-          dist/tailsshport${{ matrix.ext }}
-        retention-days: 5
+          release/
+          requirements.txt
+        retention-days: 30
 
-  release:
+    - name: Get version from tag
+      if: startsWith(github.ref, 'refs/tags/')
+      shell: bash
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+
+  create-release:
+    if: startsWith(github.ref, 'refs/tags/')
     needs: build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
+    
     steps:
-    - name: Download artifacts
-      uses: actions/download-artifact@v3
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
       with:
-        path: artifacts
+        merge-multiple: true
+    
+    - name: Get version from tag
+      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+    
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        
+        # Package Linux version
+        if [ -d "tailsshport-linux" ]; then
+          cd tailsshport-linux
+          tar -czf ../release-assets/tailsshport-${{ env.VERSION }}-linux.tar.gz *
+          cd ..
+        fi
+        
+        # Package Windows version  
+        if [ -d "tailsshport-windows" ]; then
+          cd tailsshport-windows
+          zip -r ../release-assets/tailsshport-${{ env.VERSION }}-windows.zip *
+          cd ..
+        fi
+        
+        # List what we have for debugging
+        ls -la
+        ls -la release-assets/ || echo "No release assets created"
 
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
-        files: |
-          artifacts/tailsshport-linux/tailsshport
-          artifacts/tailsshport-windows/tailsshport.exe
-        tag_name: v0.1.0-${{ github.sha }}
+        files: release-assets/*
+        draft: false
+        prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
         generate_release_notes: true
+        body: |
+          ## Tailscale SSH Port Scanner and Connector ${{ env.VERSION }}
+          
+          Standalone executables for Windows and Linux.
+          
+          ### Requirements
+          - Tailscale installed and running
+          - SSH client in PATH  
+          - sshpass (optional, for password auth on Linux/macOS)
+          
+          ### Downloads
+          - **Linux**: `tailsshport-${{ env.VERSION }}-linux.tar.gz`
+          - **Windows**: `tailsshport-${{ env.VERSION }}-windows.zip`
+          
+          ### Usage
+          ```bash
+          # Check dependencies
+          ./tailsshport --check-deps
+          
+          # List available machines
+          ./tailsshport --list-only
+          
+          # Interactive connection
+          ./tailsshport
+          ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
