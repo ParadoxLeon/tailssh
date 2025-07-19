@@ -2,6 +2,8 @@
 
 A Python utility for easily connecting to Tailscale machines via SSH with credential management.
 
+Reworked with Claude for better usability.
+
 ## Overview
 
 This tool automatically discovers online Tailscale machines, checks for SSH connectivity, and provides an interactive interface for connecting with saved credentials.
@@ -93,21 +95,26 @@ chmod +x tailsshport.py
 
 ### Basic Usage
 ```bash
-./tailsshport.py
+python3 tailsshport.py
 ```
+### Alias
+Place this into you're `.bashrc` then `source .bashrc` and execute with `tailssh`
+```bash
+alias tailssh="python3 ~/tailsshport.py"
+```
+
 
 ### Command Line Options
 ```bash
-./tailsshport.py --help
-./tailsshport.py --list-only    # Just list machines and exit
-./tailsshport.py --debug        # Enable debug logging
-```
+python3 tailsshport.py --help
+python3 tailsshport.py --list-only    # Just list machines and exit
+python3 tailsshport.py --debug        # Enable debug logging
 
-### First Run
-1. Run the script: `./tailsshport.py`
-2. Select a machine from the list
-3. Choose authentication method (SSH key or password)
-4. Provide credentials (will be securely saved for future use)
+# With Alias
+tailssh --help
+tailssh --list-only    # Just list machines and exit
+tailssh --debug        # Enable debug logging
+```
 
 ### Interactive Flow
 ```
@@ -203,7 +210,7 @@ tailscale status
 ### Debug Mode
 Run with `--debug` for detailed logging:
 ```bash
-./tailsshport.py --debug
+python3 tailsshport.py --debug
 ```
 
 ## Security Notes
