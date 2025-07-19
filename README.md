@@ -228,12 +228,12 @@ python3 tailsshport.py --debug
 - Requires D-Bus for keyring functionality
 - KWallet backend preferred on KDE systems
 
-### macOS
+### macOS (Untested)
 - Fully supported with Homebrew dependencies
 - Uses system Keychain for credential storage
 - May require Xcode command line tools
 
-### Windows
+### Windows (Untested)
 - Requires WSL (Windows Subsystem for Linux)
 - Or use Git Bash with Python
 - Windows Credential Store used for keyring
