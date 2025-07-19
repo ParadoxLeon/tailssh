@@ -22,8 +22,8 @@ This tool automatically discovers online Tailscale machines, checks for SSH conn
 
 ### Supported Operating Systems
 - ✅ **Linux** (fully supported)
-- ✅ **macOS** (fully supported)
-- ⚠️ **Windows** (requires WSL or Git Bash)
+- ✅ **macOS** (fully supported) (Untested)
+- ⚠️ **Windows** (requires WSL or Git Bash) (Untested)
 
 ### Required Dependencies
 
