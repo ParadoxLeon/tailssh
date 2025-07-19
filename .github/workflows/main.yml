@@ -9,22 +9,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: tailsshport-linux
-            executable_extension: ""
-            shell: bash
-          - os: windows-latest
-            artifact_name: tailsshport-windows
-            executable_extension: ".exe"
-            shell: pwsh
-
-    runs-on: ${{ matrix.os }}
-
+  build-linux:
+    runs-on: ubuntu-latest
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -34,17 +20,13 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install system dependencies (Linux)
-      if: matrix.os == 'ubuntu-latest'
-      shell: bash
+    - name: Install system dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y libsecret-1-dev libdbus-1-dev
-        # Install additional libraries that might be needed
         sudo apt-get install -y libffi-dev libssl-dev
 
     - name: Install Python dependencies
-      shell: ${{ matrix.shell }}
       run: |
         python -m pip install --upgrade pip
         pip install pyinstaller
@@ -52,23 +34,13 @@ jobs:
         pip install secretstorage  # For Linux keyring support
         pip install keyrings.alt  # Alternative keyring backends
         pip install jeepney      # D-Bus for Linux
-        
-        # Install Windows-specific keyring support
-        if [[ "${{ matrix.os }}" == "windows-latest" ]]; then
-          pip install pywin32
-        fi
-
-    - name: Create requirements.txt (for reference)
-      shell: ${{ matrix.shell }}
-      run: |
         pip freeze > requirements.txt
 
     - name: Build executable with PyInstaller
-      shell: ${{ matrix.shell }}
       run: |
         pyinstaller \
           --onefile \
-          --name tailsshport${{ matrix.executable_extension }} \
+          --name tailsshport \
           --console \
           --hidden-import=keyring.backends.Windows.WinVaultKeyring \
           --hidden-import=keyring.backends.macOS.Keyring \
@@ -83,27 +55,17 @@ jobs:
           --collect-all jeepney \
           tailsshport.py
 
-    - name: Test executable (basic help)
-      shell: ${{ matrix.shell }}
+    - name: Test executable
       run: |
         # Test that the executable runs and shows help
-        ./dist/tailsshport${{ matrix.executable_extension }} --help || true
+        ./dist/tailsshport --help || true
         # Test dependency check
-        ./dist/tailsshport${{ matrix.executable_extension }} --check-deps || true
+        ./dist/tailsshport --check-deps || true
 
     - name: Create release directory
-      shell: ${{ matrix.shell }}
       run: |
         mkdir -p release
-
-    - name: Copy executable to release directory
-      shell: ${{ matrix.shell }}
-      run: |
-        cp dist/tailsshport${{ matrix.executable_extension }} release/
-
-    - name: Create README for release
-      shell: ${{ matrix.shell }}
-      run: |
+        cp dist/tailsshport release/
         cat > release/README.txt << 'EOF'
         Tailscale SSH Port Scanner and Connector
         ========================================
@@ -133,30 +95,114 @@ jobs:
         on your system.
         EOF
 
-    - name: Upload build artifacts
+    - name: Upload Linux artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.artifact_name }}
-        path: |
-          release/
-          requirements.txt
+        name: tailsshport-linux
+        path: release/
         retention-days: 30
 
-    - name: Get version from tag
-      if: startsWith(github.ref, 'refs/tags/')
-      shell: bash
-      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install Python dependencies
+      shell: pwsh
+      run: |
+        python -m pip install --upgrade pip
+        pip install pyinstaller
+        pip install keyring
+        pip install keyrings.alt
+        pip install pywin32
+        pip freeze > requirements.txt
+
+    - name: Build executable with PyInstaller
+      shell: pwsh
+      run: |
+        pyinstaller `
+          --onefile `
+          --name tailsshport.exe `
+          --console `
+          --hidden-import=keyring.backends.Windows.WinVaultKeyring `
+          --hidden-import=keyring.backends.macOS.Keyring `
+          --hidden-import=keyring.backends.SecretService.Keyring `
+          --hidden-import=keyring.backends.kwallet.DBusKeyring `
+          --hidden-import=keyring.backends.chainer `
+          --hidden-import=keyrings.alt `
+          --collect-all keyring `
+          tailsshport.py
+
+    - name: Test executable
+      shell: pwsh
+      run: |
+        # Test that the executable runs and shows help
+        ./dist/tailsshport.exe --help || true
+        # Test dependency check
+        ./dist/tailsshport.exe --check-deps || true
+
+    - name: Create release directory
+      shell: pwsh
+      run: |
+        mkdir -p release
+        cp dist/tailsshport.exe release/
+        @"
+        Tailscale SSH Port Scanner and Connector
+        ========================================
+        
+        This is a standalone executable version of tailsshport.
+        
+        Requirements:
+        - Tailscale must be installed and running on your system
+        - SSH client must be available in PATH
+        
+        Usage:
+        ------
+        tailsshport.exe --help           # Show help
+        tailsshport.exe --check-deps     # Check system dependencies  
+        tailsshport.exe --list-only      # Just list machines
+        tailsshport.exe                  # Interactive mode
+        
+        The executable will:
+        1. Scan your Tailscale network for machines with SSH ports open
+        2. Allow you to select a machine to connect to
+        3. Remember your authentication preferences using system keyring
+        4. Connect via SSH
+        
+        Note: This executable is portable but still requires external 
+        dependencies (tailscale, ssh) to be installed on your system.
+        "@ > release/README.txt
+
+    - name: Upload Windows artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: tailsshport-windows
+        path: release/
+        retention-days: 30
 
   create-release:
     if: startsWith(github.ref, 'refs/tags/')
-    needs: build
+    needs: [build-linux, build-windows]
     runs-on: ubuntu-latest
     
     steps:
-    - name: Download all artifacts
+    - name: Download Linux artifact
       uses: actions/download-artifact@v4
       with:
-        merge-multiple: true
+        name: tailsshport-linux
+        path: tailsshport-linux
+    
+    - name: Download Windows artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: tailsshport-windows
+        path: tailsshport-windows
     
     - name: Get version from tag
       run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
@@ -166,22 +212,14 @@ jobs:
         mkdir -p release-assets
         
         # Package Linux version
-        if [ -d "tailsshport-linux" ]; then
-          cd tailsshport-linux
-          tar -czf ../release-assets/tailsshport-${{ env.VERSION }}-linux.tar.gz *
-          cd ..
-        fi
+        cd tailsshport-linux
+        tar -czf ../release-assets/tailsshport-${{ env.VERSION }}-linux.tar.gz *
+        cd ..
         
         # Package Windows version  
-        if [ -d "tailsshport-windows" ]; then
-          cd tailsshport-windows
-          zip -r ../release-assets/tailsshport-${{ env.VERSION }}-windows.zip *
-          cd ..
-        fi
-        
-        # List what we have for debugging
-        ls -la
-        ls -la release-assets/ || echo "No release assets created"
+        cd tailsshport-windows
+        zip -r ../release-assets/tailsshport-${{ env.VERSION }}-windows.zip *
+        cd ..
 
     - name: Create Release
       uses: softprops/action-gh-release@v2
